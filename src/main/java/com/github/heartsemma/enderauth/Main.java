@@ -26,7 +26,6 @@ package com.github.heartsemma.enderauth;
 
 //In House Listeners
 import com.github.heartsemma.enderauth.Listeners.ClientJoinEvent;
-
 //Main Plugin API Class
 import org.spongepowered.api.plugin.Plugin;
 import org.spongepowered.api.plugin.PluginContainer;
@@ -34,8 +33,8 @@ import org.spongepowered.api.Game;
 import org.spongepowered.api.Sponge;
 //Events
 import org.spongepowered.api.event.Listener;
-import org.spongepowered.api.event.game.state.GameStartedServerEvent;
-
+import org.spongepowered.api.event.game.state.GamePreInitializationEvent;
+import org.spongepowered.api.event.game.state.GamePostInitializationEvent;
 //Logging
 import org.slf4j.Logger;
 import com.google.inject.Inject;
@@ -44,17 +43,21 @@ import com.google.inject.Inject;
 @Plugin(id = "enderauth", name = "EnderAuth", version = "0.1 (Alpha)")
 public class Main {
 	
-	
-	
-	//Global, plugin wide variables
-	private final Logger logger;
-	private final Game game;
-	private final PluginContainer pluginContainer;
-	
 	private static Main instance;
 	public static Main getInstance(){
 		return instance;
 	}
+	
+	//Global, plugin wide variables related to the Sponge API
+	private final Logger logger;
+	private final Game game;
+	private final PluginContainer pluginContainer;
+	
+	//If there was dramatic error somewhere in the program, 
+	private boolean majorFailure = false;
+	
+	//Database/Configuration variables
+	private Database database;
 	
 	@Inject
 	public Main(Logger logger, Game game, PluginContainer pluginContainer){
@@ -63,24 +66,41 @@ public class Main {
 		this.pluginContainer = pluginContainer;
 	}
 	
-	//Introducing ourselves.
+	//Initializing the plugin.
 	@Listener
-    public void onServerStart(GameStartedServerEvent event) {
+	public void onPreInit(GamePreInitializationEvent preInitEvent) {
 		logger.info("EnderAuth is initializing. Thank you for taking the steps to properly secure your users.");
-		logger.info("Visit spongepowered.com for more information on how to use and configure EnderAuth.");
+		logger.info("Visit the spongepowered.com forums for more information on how to use and configure EnderAuth.");
 		
-		//Initializing Listeners
-		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); //When a client successfully connects to a server.
+		//Initializing Global Variables
+		database = new Database();
 		
 		
     }
-	
+	//After initialization, if nothing went wrong, install listeners.
+	@Listener
+	public void onPostInit(GamePostInitializationEvent postInitEvent){
+		
+		//Make sure initialization went well.
+		if(majorFailure){
+			logger.error("Initialization didn't go well, and thus EnderAuth is not attempting to register listeners.");
+			logger.error("The plugin will not load and is not enabled.");
+			logger.error("If your server relies on this plugin for its security, TURN OF YOUR SERVER NOW.");
+			assert(!majorFailure);
+		}
+		
+		
+		//Initializing Listeners. "We're online"
+		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); //When a client successfully finishes connecting to a server.
+		
+	}
 	
 	//Get Methods
 	public Logger getLogger(){ return logger; }
 	public Game getGame(){ return game; }
-	public PluginContainer pluginContainer(){ return pluginContainer; }
-	
+	public PluginContainer getPluginContainer(){ return pluginContainer; }
+	public Database getDatabase(){ return database; }
+	public void majorFailure(){ majorFailure = true; }
 	
 	
 }
