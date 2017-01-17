@@ -24,22 +24,23 @@
 
 package com.github.heartsemma.enderauth;
 
-//In House Listeners
+import com.github.heartsemma.enderauth.DataStructures.DatabaseException;
 import com.github.heartsemma.enderauth.Listeners.ClientJoinEvent;
-//Main Plugin API Class
+
 import org.spongepowered.api.plugin.Plugin;
 import org.spongepowered.api.plugin.PluginContainer;
 import org.spongepowered.api.Game;
 import org.spongepowered.api.Sponge;
-//Events
+
 import org.spongepowered.api.event.Listener;
 import org.spongepowered.api.event.game.state.GamePreInitializationEvent;
 import org.spongepowered.api.event.game.state.GamePostInitializationEvent;
-//Logging
+
+import java.sql.SQLException;
+
 import org.slf4j.Logger;
 import com.google.inject.Inject;
 
-//Main Class.
 @Plugin(id = "enderauth", name = "EnderAuth", version = "0.1 (Alpha)")
 public class Main {
 	
@@ -53,8 +54,7 @@ public class Main {
 	private final Game game;
 	private final PluginContainer pluginContainer;
 	
-	//If there was dramatic error somewhere in the program, 
-	private boolean majorFailure = false;
+	private boolean killSwitchPulled = false;
 	
 	//Database/Configuration variables
 	private Database database;
@@ -66,41 +66,58 @@ public class Main {
 		this.pluginContainer = pluginContainer;
 	}
 	
-	//Initializing the plugin.
 	@Listener
 	public void onPreInit(GamePreInitializationEvent preInitEvent) {
 		logger.info("EnderAuth is initializing. Thank you for taking the steps to properly secure your users.");
 		logger.info("Visit the spongepowered.com forums for more information on how to use and configure EnderAuth.");
 		
 		//Initializing Global Variables
-		database = new Database();
-		
-		
+		try {
+			database = new Database();
+		} catch (SQLException e) {
+			logger.error("FATAL: EnderAuth ran into an exception was unable to initialize the database.");
+			logger.error("FATAL: EnderAuth will not initialize and will attempt to shut down itself.");
+			logger.error("FATAL: If your server was configured to shut down upon death of EnderAuth, it will do so now.");
+			e.printStackTrace();
+			killPlugin();
+		} 
+
     }
+	
 	//After initialization, if nothing went wrong, install listeners.
 	@Listener
 	public void onPostInit(GamePostInitializationEvent postInitEvent){
 		
-		//Make sure initialization went well.
-		if(majorFailure){
-			logger.error("Initialization didn't go well, and thus EnderAuth is not attempting to register listeners.");
-			logger.error("The plugin will not load and is not enabled.");
-			logger.error("If your server relies on this plugin for its security, TURN OF YOUR SERVER NOW.");
-			assert(!majorFailure);
+		//If the kill switch has been pulled we must not register listeners.
+		if(killSwitchPulled){
+			return;
 		}
 		
-		
-		//Initializing Listeners. "We're online"
-		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); //When a client successfully finishes connecting to a server.
+		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); 
 		
 	}
 	
-	//Get Methods
-	public Logger getLogger(){ return logger; }
+	/** @return The final Logger 'logger' from Main. <br><br>This should be the only object used to log events by policy.*/
+	public Logger getLogger(){ return logger; } 
+	
+	/** @return The final Game 'game' from Main.*/
 	public Game getGame(){ return game; }
+	
+	/** @return The final PluginContainer 'pluginContainer' from Main.*/
 	public PluginContainer getPluginContainer(){ return pluginContainer; }
+	
+	/** @return The final Database 'database' from Main. <br><br>Should be the only object used for all database inquiries by policy.*/
 	public Database getDatabase(){ return database; }
-	public void majorFailure(){ majorFailure = true; }
+	
+	/** Shuts down the program in case of major unrecoverable failure, security incident, etc. 
+	 * <br><br>Because many server owners may rely on this plugin for protection in the future, use this only when <b>absolutely necessary</b>. 
+	 * If a large portion of the plugin's functionality is gone, but it  is still providing some security controls, you shouldn't use this. 
+	 * <br><br>Specifically, this unregisters all listeners. If the plugin is configured to shut down the server when encountering major error,
+	 * it does that as well.*/
+	public void killPlugin(){ 
+		Sponge.getEventManager().unregisterListeners(this);
+		killSwitchPulled = true;
+	}
 	
 	
 }

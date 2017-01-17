@@ -41,9 +41,12 @@ import java.util.Optional;
 
 public class ClientJoinEvent {
 	
+	//Final variables for interacting with other parts of the plugin
+	private final Main main = Main.getInstance(); 
+	
 	//Returns true if the associated player is registered, false if not.
 	public boolean isRegistered(Player player){
-		//TODO: Introduce logic for determining status of registration.
+		//TODO: This function.
 		return true;
 	}
 	
@@ -62,10 +65,11 @@ public class ClientJoinEvent {
 		
 		//Checking if the cause of the event is a player.
 		if(!arrivingPlayer.isPresent()){
-			Main.getInstance().getLogger().warn("A client appears to have joined but EnderAuth was unable to identify them.");
-			Main.getInstance().getLogger().warn("We were unable to authenticate this player because Sponge was unable to tell us who or what joined.");
+			main.getLogger().warn("A client appears to have joined but EnderAuth was unable to identify them.");
+			main.getLogger().warn("We were unable to authenticate this player because Sponge was unable to tell us who or what joined.");
 			return;
 		} else {
+			main.getLogger().debug("Attempting to identify and authenticate the given user");
 			player = arrivingPlayer.get();
 		}
 		
@@ -74,7 +78,7 @@ public class ClientJoinEvent {
 		if(isRegistered(player)){
 			//TODO: Authenticate the user
 		} else {
-			
+			//TODO: Register the user and authenticate them
 		}
 		
 	}
