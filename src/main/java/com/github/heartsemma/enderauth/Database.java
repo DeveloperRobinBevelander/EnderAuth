@@ -146,6 +146,7 @@ public class Database {
 		
 		if(variables==null || variables.size()==0){
 			logger.debug("Executing command " + sql + ".");
+			
 			try(Statement statement = connection.createStatement()){
 				statement.execute(sql);
 				returnedResultSet = statement.getResultSet();
@@ -155,6 +156,7 @@ public class Database {
 		} else {
 			logger.debug("Checking if amount of variables equals");
 			Preconditions.checkArgument(variables.size()==StringUtils.countMatches(sql, "?"));
+			
 			try(PreparedStatement preparedStatement = connection.prepareStatement(sql)){
 				for(int i=1; i<=variables.size(); i++){
 					preparedStatement.setObject(i, variables.get(i));

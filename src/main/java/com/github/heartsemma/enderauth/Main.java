@@ -24,6 +24,7 @@
 
 package com.github.heartsemma.enderauth;
 
+import com.github.heartsemma.enderauth.Commands.RegisterCommand;
 import com.github.heartsemma.enderauth.Listeners.ClientJoinEvent;
 
 import org.spongepowered.api.plugin.Plugin;
@@ -50,7 +51,7 @@ public class Main {
 	
 	//Global, plugin wide variables related to the Sponge API
 	private final Logger logger;
-	private final Game game;
+	private final Game game = Sponge.getGame();
 	private final PluginContainer pluginContainer;
 	
 	private boolean killSwitchPulled = false;
@@ -80,11 +81,18 @@ public class Main {
 		
 		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); 
 		
-		CommandSpec cs = CommandSpec.builder()
-			.description(Text.of("Hello World Command"))
+		CommandSpec register = CommandSpec.builder()
+			.description(Text.of("User Registration Command"))
 		    .permission(pluginContainer.getId() + ".user.command.help")
-		    .executor(new HelloWorldCommand())
+		    .executor(new RegisterCommand())
 		    .build();
+		
+		CommandSpec ea = CommandSpec.builder()
+			.description(Text.of("Base command for interacting with EnderAuth"))
+			.child(register, "register")
+			.build();
+		
+		Sponge.getCommandManager().register(this, ea);
 		
 	}
 	
