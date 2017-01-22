@@ -24,17 +24,22 @@
 
 package com.github.heartsemma.enderauth.Listeners;
 
+import com.github.heartsemma.enderauth.Database;
 //Main
 import com.github.heartsemma.enderauth.Main;
+import com.github.heartsemma.enderauth.Commands.Messenger;
+import com.github.heartsemma.enderauth.DataStructures.DatabaseException;
+import com.github.heartsemma.enderauth.Utilities.UUIDUtils;
 
 //Sponge Listener Packages
 import org.spongepowered.api.event.Listener;
 import org.spongepowered.api.event.cause.Cause;
 import org.spongepowered.api.event.network.ClientConnectionEvent;
-
+import org.slf4j.Logger;
 //Sponge Player
 import org.spongepowered.api.entity.living.player.Player;
 
+import java.sql.SQLException;
 //Optional
 import java.util.Optional;
 
@@ -43,6 +48,9 @@ public class ClientJoinEvent {
 	
 	//Final variables for interacting with other parts of the plugin
 	private final Main main = Main.getInstance(); 
+	private final Logger logger = main.getLogger();
+	private Database database = Database.getInstance();
+	private Messenger messenger = Messenger.getInstance();
 	
 	//Returns true if the associated player is registered, false if not.
 	public boolean isRegistered(Player player){
@@ -65,21 +73,38 @@ public class ClientJoinEvent {
 		
 		//Checking if the cause of the event is a player.
 		if(!arrivingPlayer.isPresent()){
-			main.getLogger().warn("A client appears to have joined but EnderAuth was unable to identify them.");
-			main.getLogger().warn("We were unable to authenticate this player because Sponge was unable to tell us who or what joined.");
+			logger.warn("A client appears to have joined but EnderAuth was unable to identify them.");
+			logger.warn("We were unable to authenticate this player because Sponge was unable to tell us who or what joined.");
 			return;
 		} else {
-			main.getLogger().debug("Attempting to identify and authenticate the given user");
+			logger.debug("Attempting to identify and authenticate the given user");
 			player = arrivingPlayer.get();
 		}
 		
+		boolean isInDatabase;
+		try {
+			byte[] uuid = UUIDUtils.getUUID(player);
+			isInDatabase = database.isInDatabase(uuid);
+		} catch (SQLException e) {
+			logger.error("EnderAuth encountered an exception while trying to communicate with its database.");
+			logger.error("Since EnderAuth must deterine the presence of the user in the database as a part of authentication, we will kick the player.");
+			e.printStackTrace();
+			player.kick();
+			return;
+		} catch (DatabaseException e) {
+			logger.error("There was a problem with the database that prevented EnderAuth from determining the presence of a player.");
+			logger.error("Since EnderAuth must deterine the presence of the user in the database as a part of authentication, we will kick the player.");
+			e.printStackTrace();
+			player.kick();
+			return;
+		}
 		
-		
-		if(isRegistered(player)){
-			//TODO: Authenticate the user
+		if(isInDatabase){
+			messenger.welcomeBack(player);
 		} else {
-			//TODO: Register the user and authenticate them
+			messenger.sendIntroduction(player);
 		}
 		
 	}
+	
 }

@@ -31,16 +31,25 @@ package com.github.heartsemma.enderauth;
  * If you see this policy being broken somewhere in the code, please message me or one of the developers.
  */
 import java.sql.*;
+import java.util.ArrayList;
 
-import org.spongepowered.api.util.Tuple;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
 
 import com.github.heartsemma.enderauth.DataStructures.DatabaseException;
 import com.github.heartsemma.enderauth.DataStructures.DatabaseExceptions.UUIDNotFoundException;
+import com.google.common.base.Preconditions;
 
 public class Database {
 	
 	//Final variables for interacting with other parts of the plugin
 	private final Main main = Main.getInstance(); 
+	private final Logger logger = main.getLogger();
+    
+    
+    //Class-Wide SQL Variables for entering commands
+	private Connection connection;
+	private boolean databaseInitialized; //
 	
 	//Constants about the database. Some of these may be pulled from configuration in the future. For now they are set here and unconfigurable.
     private static final String dbName = "enderAuthDB"; //Name of the database.
@@ -54,65 +63,116 @@ public class Database {
     private static final String userTableName = "ea_users"; //The table where we store the data for players, so we can generate their codes and authenticate them, etc.
     private static final String userTableIDColumn = "uuid"; //Name of the ID column in the user table (Also what it contains)
     private static final int userTableIDColumnIndex = 1; //Index of the PSK column in the user table 
-    private static final String userTableIDColumnType = "TEXT NOT NULL UNIQUE"; //Variable type/parameters of ID Column
+    private static final String userTableIDColumnType = "TINYBLOB NOT NULL UNIQUE"; //Variable type/parameters of ID Column
     private static final String userTableTotpPSKColumn = "pre_shared_key"; //Name of the PSK column in the totp user table
     private static final int userTableTotpPSKColumnIndex = 2; //Index of the PSK column in the totp user table 
     private static final String userTableTotpPSKColumnType = "TEXT"; //Variable type/parameters of the stored PSK for TOTP authentication
     
     //Sorry about the long variable names, but its better to be long than obscure.
-    
-    
-    //Class-Wide SQL Variables for entering commands
-	private Connection connection;
 	
-	//Loads an already existing database or creates one if one does not already exist and then loads it.
-	public Database() throws SQLException{
-		
-		connection = DriverManager.getConnection(dbUrl, dbUsername, dbPassword);
-		
-		//Create the database if it doesn't already exist.
-		main.getLogger().debug("Attempting to create a database, if one does not exist yet.");
-	       
-	    String makeDatabaseCommand = "CREATE DATABASE IF NOT EXISTS ?";
-	    PreparedStatement statement = connection.prepareStatement(makeDatabaseCommand);
-	    statement.setString(1, dbName);
-	        
-	    main.getLogger().debug("Running prepared statement " + statement.toString());
-	    statement.executeUpdate();
-	        
-	    
-	    statement.close();
-	    connection.commit();
-	        
-	    main.getLogger().debug("Previous command ran successfully and we will begin structuring the database (if necessary).");
-	    
-		main.getLogger().debug("Attempting to structure database in case it does not have the required tables yet.");
+	private static Database INSTANCE = null;
+	
+	public static Database getInstance(){
+		if(INSTANCE==null){
+			INSTANCE = new Database();
+		}
+		return INSTANCE;
+	}
+	
+	private Database(){}
+	
+	
+	//Loads an already existing database or creates and structures one if it doesnt already exist.
+	public void validate() throws SQLException{
+		//This should only be called once, and we want to make sure it doesn't happen again.
+		if(databaseInitialized){
+			logger.debug("The Database was already initialized.");
+			logger.debug("This initialization process will be skipped to prevent it from happening a second time...");
+		} else {
+			connection = DriverManager.getConnection(dbUrl, dbUsername, dbPassword);
 			
-		String command = "CREATE TABLE IF NOT EXISTS ? ( "
-					   + "? ? NOT NULL UNIQUE," //UUID of the player; Used as the ID
-					   + "? ?)"; //Pre-shared key we generate at registration for TOTP Authentication
+			logger.debug("Attempting to create a database, if one does not exist yet.");
+		       
+		    String makeDatabaseCommand = "CREATE DATABASE IF NOT EXISTS ?";
+		    
+		    ArrayList<Object> makeDatabaseVariables = new ArrayList<Object>();
+		    makeDatabaseVariables.add(dbName);
+		    
+		    transact(makeDatabaseCommand, makeDatabaseVariables);
+		    
+		    logger.debug("Previous command ran successfully and we will begin structuring the database (if necessary).");
+			logger.debug("Attempting to structure database in case it does not have the required tables yet.");
+				
+			String tableCreationCommand = "CREATE TABLE IF NOT EXISTS ? ( "
+						   + "? ?," //UUID of the player; Used as the ID
+						   + "? ?)"; //Pre-shared key we generate at registration for TOTP Authentication
 			
-		PreparedStatement tableCreationStatement = connection.prepareStatement(command);
-		tableCreationStatement.setString(1, userTableName);
-		tableCreationStatement.setString(2, userTableIDColumn);
-		tableCreationStatement.setString(3, userTableIDColumnType);
-		tableCreationStatement.setString(4, userTableTotpPSKColumn);
-		tableCreationStatement.setString(5, userTableTotpPSKColumnType);
+			ArrayList<Object> tableCreationVariables = new ArrayList<Object>();
+			tableCreationVariables.add(userTableName);
+			tableCreationVariables.add(userTableIDColumn);
+			tableCreationVariables.add(userTableIDColumnType);
+			tableCreationVariables.add(userTableTotpPSKColumn);
+			tableCreationVariables.add(userTableTotpPSKColumnType);
+			
+			transact(tableCreationCommand,tableCreationVariables);
+			
+			//Full command should look something like: CREATE TABLE IF NOT EXISTS EA_TOTP_TABLE (USERNAME TEXT, PSK TEXT)
+			
+			logger.debug("Running command: " + tableCreationCommand.toString());
+			
+			databaseInitialized=true;
+		}
+	}
+	
+	/**
+	 * @param sql (SQL Statement to be executed)
+	 * @param variables (Variables within the SQL statement that will be securely injected into the sql statement. May be empty.)
+	 * @return A ResultSet containing the result of the MySQL query entered. Returns null if the MySQL is not a select query.
+	 * 
+	 * <br><br> This command runs the entered MySQL query 'sql', and substitutes the question marks with the variables in the array.
+	 * It then returns an arraylist that represents the results of that MySQL query.
+	 */
+	private ResultSet transact(String sql, ArrayList<Object> variables) throws SQLException{
 		
-		//Full command should look something like: CREATE TABLE IF NOT EXISTS EA_TOTP_TABLE (USERNAME TEXT, PSK TEXT)
+		if(!databaseInitialized){
+			validate();
+		}
 		
-		main.getLogger().debug("Running command: " + tableCreationStatement.toString());
+		logger.debug("transact() sql statement execution method called.");
+		logger.debug("Checking for null parameters...");
+		Preconditions.checkNotNull(sql);
 		
-		tableCreationStatement.executeUpdate();
+		ResultSet returnedResultSet = null;
 		
-		tableCreationStatement.close();
+		if(variables==null || variables.size()==0){
+			logger.debug("Executing command " + sql + ".");
+			try(Statement statement = connection.createStatement()){
+				statement.execute(sql);
+				returnedResultSet = statement.getResultSet();
+				statement.close();
+			}
+			
+		} else {
+			logger.debug("Checking if amount of variables equals");
+			Preconditions.checkArgument(variables.size()==StringUtils.countMatches(sql, "?"));
+			try(PreparedStatement preparedStatement = connection.prepareStatement(sql)){
+				for(int i=1; i<=variables.size(); i++){
+					preparedStatement.setObject(i, variables.get(i));
+				}
+				logger.debug("Executing command " + preparedStatement.toString() + ".");
+				preparedStatement.execute();
+				returnedResultSet = preparedStatement.getResultSet();
+				preparedStatement.close();
+			}
+		}
+		
 		connection.commit();
+		
+		return returnedResultSet;
 		
 	}
 	
-	/*
-	 * Public Database interaction methods
-	 */
+
 	/**
 	 * @param uuid (Universally Unique Identifier)
 	 * 
@@ -120,17 +180,15 @@ public class Database {
 	 * 
 	 * @throws SQLException This function accesses the database via an "INSERT INTO" query.
 	 * */
-	public void addUser(String uuid) throws SQLException{
-		main.getLogger().debug("Attempting to create database entry for user "+uuid);
+	public void addUser(byte[] uuid) throws SQLException{
+		logger.debug("Attempting to create database entry for user " + new String(uuid));
 		
-		String command = "INSERT INTO ? (?, NULL)";
-		PreparedStatement statement = connection.prepareStatement(command);
-		statement.setString(1, userTableName);
-		statement.setString(2, uuid);
+		String addUserCommand = "INSERT INTO ? (?, NULL)";
+		ArrayList<Object> addUserVariables = new ArrayList<Object>();
+		addUserVariables.add(userTableName);
+		addUserVariables.add(uuid);
 		
-		main.getLogger().debug("Executing command " + statement.toString()+".");
-		
-		statement.executeQuery();
+		transact(addUserCommand,addUserVariables);
 	}
 	
 	/**
@@ -141,20 +199,17 @@ public class Database {
 	 * 
 	 * @throws SQLException This function accesses the database via an "INSERT INTO" query.
 	 * */
-	public void addUser(String uuid, String PSK) throws SQLException{
-		main.getLogger().debug("Attempting to create database entry for user "+uuid);
+	public void addUser(byte[] uuid, String PSK) throws SQLException{
+		logger.debug("Attempting to create database entry for user "+uuid);
 		
-		String command = "INSERT INTO ? (?, ?)";
-		PreparedStatement addUser = connection.prepareStatement(command);
-		addUser.setString(1, userTableName);
-		addUser.setString(2, uuid);
-		addUser.setString(3, PSK);
+		String addUserCommand = "INSERT INTO ? (?, ?)";
+		ArrayList<Object> addUserVariables = new ArrayList<Object>();
+		addUserVariables.add(userTableName);
+		addUserVariables.add(uuid);
+		addUserVariables.add(PSK);
 	
-		main.getLogger().debug("Executing command " + addUser.toString()+".");
+		transact(addUserCommand,addUserVariables);
 		
-		addUser.executeQuery();
-		
-		addUser.close();
 	}
 	
 	/**
@@ -167,28 +222,28 @@ public class Database {
 	 * @throws SQLException This function accesses the database via a "SELECT" query.
 	 * @throws DatabaseException Thrown if the returned ResultSet contains missing or what should be erroneous data.
 	 */
-	public String getTotpKey(String uuid) throws SQLException, DatabaseException{
-		main.getLogger().debug("Attempting to retrieve TOTP PSK for user " + uuid + ".");
+	public String getTotpKey(byte[] uuid) throws SQLException, DatabaseException{
+		logger.debug("Attempting to retrieve TOTP PSK for user " + new String(uuid) + ".");
 		
-		String command = "SELECT ? FROM ? WHERE ? == ?";
+		String getKeyCommand = "SELECT ? FROM ? WHERE ? == ?";
 		
-		PreparedStatement selectTotpKey = connection.prepareStatement(command);
-		selectTotpKey.setString(1, userTableTotpPSKColumn);
-		selectTotpKey.setString(2, userTableName);
-		selectTotpKey.setString(3, uuid);
-		selectTotpKey.setString(4, userTableIDColumn);
+		ArrayList<Object> getKeyVariables = new ArrayList<Object>();
+		getKeyVariables.add(userTableTotpPSKColumn);
+		getKeyVariables.add(userTableName);
+		getKeyVariables.add(userTableIDColumn);
+		getKeyVariables.add(uuid);
 		
-		main.getLogger().debug("Executing command "+selectTotpKey.toString()+".");
+		ResultSet selection = transact(getKeyCommand,getKeyVariables); 	
 		
-		ResultSet selection = selectTotpKey.executeQuery(); 	
-		main.getLogger().debug("Database inquiry returned the ResultSet: " + selection.toString() + ".");
+		logger.debug("Database inquiry returned the ResultSet: " + selection.toString() + ".");
 		
 		//There should be one String in this resultset, but we will check it good because EnderAuth is stronk, EnderAuth is reliable.
-		main.getLogger().debug("Retrieving data...");
+		logger.debug("Error checking...");
+		Preconditions.checkNotNull(selection);
 		
 		if(!selection.isBeforeFirst()){ //Triggers when there are no rows in the ResultSet.
-			main.getLogger().error("EnderAuth attempted to retrieve " + uuid + "'s PSK from the database but was unable to find it.");
-			main.getLogger().error("There were no rows in the returned table of data after running the MySql 'PreparedStatement' " + selectTotpKey.toString() + ".");
+			logger.error("EnderAuth attempted to retrieve " + new String(uuid) + "'s PSK from the database but was unable to find it.");
+			logger.error("There were no rows in the returned table of data after running the MySql 'PreparedStatement' .");
 			
 			throw new DatabaseException("getTotpKey()'s PreparedStatement returned a ResultSet that had no data.");
 		}
@@ -196,67 +251,73 @@ public class Database {
 		selection.last();
 		
 		if(selection.getRow() == 1){ //There was no entry for this user.
-			main.getLogger().error("EnderAuth attempted to retrieve " + uuid + "'s PSK from the database but was unable to find it.");
-			main.getLogger().error("Does " + uuid + " have an entry in the " + userTableName + " table?");
+			logger.error("EnderAuth attempted to retrieve " + new String(uuid) + "'s PSK from the database but was unable to find it.");
+			logger.error("Does " + new String(uuid) + " have an entry in the " + userTableName + " table?");
 		
 			//Returns null because we were unable to get the required data.
 			throw new UUIDNotFoundException("getTotpKey() was unable to find the entry in the database with the specified UUID.");
 			
 		} else if(selection.getRow()==2){ //There was one entry for this user
 			//If we get to this point, everything looks tight.	
-			main.getLogger().debug("Successfully retrieved PSK from user " + uuid + ".");
+			logger.debug("Successfully retrieved PSK from user " + new String(uuid) + ".");
 			
 			String PSK = selection.getString(userTableTotpPSKColumnIndex);
 			return PSK; 	
 			
 		} else { //There was more than one entry for this user.
-			main.getLogger().error("EnderAuth searched for " + uuid + "'s PSK and found multiple entries for that user in the database.");
-			main.getLogger().error("This should not have happened and indicates either plugin glitches or malcious database tampering.");
+			logger.error("EnderAuth searched for " + new String(uuid) + "'s PSK and found multiple entries for that user in the database.");
+			logger.error("This should not have happened and indicates either plugin glitches or malcious database tampering.");
 			
 			throw new DatabaseException("Multiple entries matching the specified UUID were found in the database.");
 		}
 	}
 	
 	/**@param uuid (Universally Unique Identifier)
-	 * @return A boolean that tells
+	 * @return A boolean
 	 * 
 	 * <br><Br>Returns true if there is an entry in the User Table with a uuid matching the parameter. 
 	 * <br>Returns false if there is not.
 	 * 
 	 * @throws SQLException The function uses PreparedStatements to ask about the presence of the UUID in the User Table.
 	 * @throws DatabaseException If the returned ResultSet from the SELECT command is completely empty (that is, lacking even the names of the columns in the table), the function throws a DatabaseException.*/
-	public boolean isInDatabase(String uuid) throws SQLException, DatabaseException {
-		main.getLogger().debug("Attempting to determine presence of user " + uuid + " in the database.");
+	public boolean isInDatabase(byte[] uuid) throws SQLException, DatabaseException {
+		logger.debug("Attempting to determine presence of user " + new String(uuid) + " in the database.");
 			
-		String command = "SELECT * FROM ? WHERE ? = ?";
-		PreparedStatement statement = connection.prepareStatement(command);
+		String isInDatabaseCommand = "SELECT * FROM ? WHERE ? = ?";
 		
-		statement.setString(1, userTableName);
-		statement.setString(2, userTableIDColumn);
-		statement.setString(3, uuid);
+		ArrayList<Object> isInDatabaseVariables = new ArrayList<Object>();
+		
+		isInDatabaseVariables.add(1, userTableName);
+		isInDatabaseVariables.add(2, userTableIDColumn);
+		isInDatabaseVariables.add(3, uuid);
 
 		//Command should look something like: SELECT * FROM ea_users WHERE id == uuid
-		main.getLogger().debug("Executing command "+statement.toString()+".");
 		
-		ResultSet selection = statement.executeQuery();
-		main.getLogger().debug("Database inquiry returned the ResultSet: " + selection.toString() + ".");
+		ResultSet selection = transact(isInDatabaseCommand, isInDatabaseVariables);
+		
+		logger.debug("Database inquiry returned the ResultSet: " + selection.toString() + ".");
+		
+		logger.debug("Error Checking...");
+		Preconditions.checkNotNull(selection);
 		
 		//ResultSet Analysis + Error Checking
 		if(selection.isBeforeFirst()){ //Triggers when there are no rows in the ResultSet.
-			main.getLogger().error("EnderAuth attempted to find if there was a uuid matching " + uuid + " in the database but was unable to run the necessary SQL queries.");
-			main.getLogger().error("There were no rows in the returned table of data after running the MySql 'PreparedStatement' " + statement.toString() + ".");
+			logger.error("EnderAuth attempted to find if there was a uuid matching " +
+									new String(uuid) + " in the database but was unable to run the necessary SQL queries.");
+			logger.error("There were no rows in the returned table of data after running the MySql 'PreparedStatement'.");
 			throw new DatabaseException("Returned ResultSet in isPresent(String uuid) contained no rows.");
 		}
 		
 		selection.last();
 		
 		if(selection.getRow() == 1){ //There are no entries in the ResultSet.
-			main.getLogger().debug("No entries for user " + uuid + " were found in the ResultSet.");
+			logger.debug("No entries for user " + new String(uuid) + " were found in the ResultSet.");
 			return false;
 			
 		} else { //There is one or more entries with the matching uuid.
-			main.getLogger().debug("User " + uuid + " was found in the database.");
+			logger.debug("User " + new String(uuid) + " was found in the database.");
 			return true;
 		} 
+		
 	}
 }

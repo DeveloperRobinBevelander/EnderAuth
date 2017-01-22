@@ -24,19 +24,18 @@
 
 package com.github.heartsemma.enderauth;
 
-import com.github.heartsemma.enderauth.DataStructures.DatabaseException;
 import com.github.heartsemma.enderauth.Listeners.ClientJoinEvent;
 
 import org.spongepowered.api.plugin.Plugin;
 import org.spongepowered.api.plugin.PluginContainer;
+import org.spongepowered.api.text.Text;
 import org.spongepowered.api.Game;
 import org.spongepowered.api.Sponge;
-
+import org.spongepowered.api.command.spec.CommandSpec;
 import org.spongepowered.api.event.Listener;
 import org.spongepowered.api.event.game.state.GamePreInitializationEvent;
+import org.spongepowered.api.event.game.state.GameInitializationEvent;
 import org.spongepowered.api.event.game.state.GamePostInitializationEvent;
-
-import java.sql.SQLException;
 
 import org.slf4j.Logger;
 import com.google.inject.Inject;
@@ -56,9 +55,6 @@ public class Main {
 	
 	private boolean killSwitchPulled = false;
 	
-	//Database/Configuration variables
-	private Database database;
-	
 	@Inject
 	public Main(Logger logger, Game game, PluginContainer pluginContainer){
 		this.logger = logger;
@@ -72,28 +68,23 @@ public class Main {
 		logger.info("Visit the spongepowered.com forums for more information on how to use and configure EnderAuth.");
 		
 		//Initializing Global Variables
-		try {
-			database = new Database();
-		} catch (SQLException e) {
-			logger.error("FATAL: EnderAuth ran into an exception was unable to initialize the database.");
-			logger.error("FATAL: EnderAuth will not initialize and will attempt to shut down itself.");
-			logger.error("FATAL: If your server was configured to shut down upon death of EnderAuth, it will do so now.");
-			e.printStackTrace();
-			killPlugin();
-		} 
-
+		logger.debug("Initializing important variables.");
     }
 	
 	//After initialization, if nothing went wrong, install listeners.
 	@Listener
-	public void onPostInit(GamePostInitializationEvent postInitEvent){
+	public void onInit(GameInitializationEvent postInitEvent){
 		
-		//If the kill switch has been pulled we must not register listeners.
-		if(killSwitchPulled){
-			return;
-		}
+		//If the kill switch has been pulled the plugin has lost critical functionality and we must not register listeners.
+		if(killSwitchPulled){ return; }
 		
 		Sponge.getEventManager().registerListeners(this, new ClientJoinEvent()); 
+		
+		CommandSpec cs = CommandSpec.builder()
+			.description(Text.of("Hello World Command"))
+		    .permission(pluginContainer.getId() + ".user.command.help")
+		    .executor(new HelloWorldCommand())
+		    .build();
 		
 	}
 	
@@ -106,12 +97,7 @@ public class Main {
 	/** @return The final PluginContainer 'pluginContainer' from Main.*/
 	public PluginContainer getPluginContainer(){ return pluginContainer; }
 	
-	/** @return The final Database 'database' from Main. <br><br>Should be the only object used for all database inquiries by policy.*/
-	public Database getDatabase(){ return database; }
-	
 	/** Shuts down the program in case of major unrecoverable failure, security incident, etc. 
-	 * <br><br>Because many server owners may rely on this plugin for protection in the future, use this only when <b>absolutely necessary</b>. 
-	 * If a large portion of the plugin's functionality is gone, but it  is still providing some security controls, you shouldn't use this. 
 	 * <br><br>Specifically, this unregisters all listeners. If the plugin is configured to shut down the server when encountering major error,
 	 * it does that as well.*/
 	public void killPlugin(){ 
